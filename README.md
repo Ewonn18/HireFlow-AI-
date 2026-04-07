@@ -26,14 +26,23 @@ AI-powered job application assistant that helps users optimize resumes, generate
 
 ## 📸 Screenshots
 
-> Add screenshots here
+### 🏠 Homepage
+![Homepage](./homepage.png)
 
-- Homepage
-- Dashboard
-- Resume Upload
-- Job Match
-- Tracker
-- Auth Pages
+### 📊 Dashboard
+![Dashboard](./dashboard.png)
+
+### 📄 Resume Upload
+![Resume](./resume.png)
+
+### 🎯 Job Match
+![Job Match](./jobmatch.png)
+
+### 📌 Tracker
+![Tracker](./tracker.png)
+
+### 🔐 Auth Pages
+![Auth](./auth.png)
 
 ---
 
