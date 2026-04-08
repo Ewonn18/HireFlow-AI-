@@ -1,49 +1,123 @@
+/**
+ * Supabase Client Setup
+ *
+ * This module initializes the Supabase client with proper environment variable handling.
+ * Secrets are never exposed to the browser through this configuration.
+ *
+ * Required Environment Variables (set in .env.local and Vercel):
+ * - NEXT_PUBLIC_SUPABASE_URL: Your Supabase project URL (https://your-project.supabase.co)
+ * - NEXT_PUBLIC_SUPABASE_ANON_KEY: Your Supabase anonymous key (from API Settings)
+ *
+ * These are "NEXT_PUBLIC_" prefixed because they're safe to expose in the browser
+ * (the anon key only allows operations defined in your RLS policies).
+ */
+
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/^['\"]|['\"]$/g, "") ||
-  "";
-const supabaseAnonKey =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim().replace(
-    /^['\"]|['\"]$/g,
-    "",
-  ) || "";
+// ============================================================================
+// Environment Variable Validation
+// ============================================================================
 
-function getAnonKeyPreview(value: string) {
-  if (!value) {
-    return "";
+function sanitizeEnvValue(value: string | undefined): string {
+  if (!value) return "";
+  return value.trim().replace(/^['\"]|['\"]$/g, "");
+}
+
+const supabaseUrl = sanitizeEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const supabaseAnonKey = sanitizeEnvValue(
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+);
+
+// ============================================================================
+// Validation & Error Detection
+// ============================================================================
+
+type ConfigValidationResult =
+  | { valid: true }
+  | { valid: false; error: string; missingVars: string[] };
+
+function validateConfig(): ConfigValidationResult {
+  const missingVars: string[] = [];
+
+  if (!supabaseUrl) {
+    missingVars.push("NEXT_PUBLIC_SUPABASE_URL");
   }
 
-  return value.slice(0, 12);
-}
+  if (!supabaseAnonKey) {
+    missingVars.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
 
-if (process.env.NODE_ENV === "development") {
-  console.log("Supabase final URL:", supabaseUrl || "<missing>");
-  console.log("Supabase URL loaded:", Boolean(supabaseUrl));
-  console.log("Supabase anon key exists:", Boolean(supabaseAnonKey));
-  console.log("Supabase anon key preview:", getAnonKeyPreview(supabaseAnonKey));
-}
+  if (missingVars.length > 0) {
+    const vars = missingVars.join(", ");
+    return {
+      valid: false,
+      error: `Missing required environment variables: ${vars}. Set these in .env.local and in Vercel Project Settings → Environment Variables.`,
+      missingVars,
+    };
+  }
 
-let supabaseConfigError = "";
-
-if (!supabaseUrl) {
-  supabaseConfigError = "Missing env.NEXT_PUBLIC_SUPABASE_URL";
-} else if (!supabaseAnonKey) {
-  supabaseConfigError = "Missing env.NEXT_PUBLIC_SUPABASE_ANON_KEY";
-} else {
+  // Validate URL format
   try {
     const parsed = new URL(supabaseUrl);
-    if (!/^https?:$/.test(parsed.protocol)) {
-      supabaseConfigError = "Invalid NEXT_PUBLIC_SUPABASE_URL protocol.";
+    if (!["https:", "http:"].includes(parsed.protocol)) {
+      return {
+        valid: false,
+        error: `Invalid NEXT_PUBLIC_SUPABASE_URL protocol. Expected https or http, got: ${parsed.protocol}`,
+        missingVars: [],
+      };
     }
   } catch {
-    supabaseConfigError =
-      "Invalid NEXT_PUBLIC_SUPABASE_URL. Expected a full URL.";
+    return {
+      valid: false,
+      error: `Invalid NEXT_PUBLIC_SUPABASE_URL format. Expected a full URL like https://your-project.supabase.co`,
+      missingVars: [],
+    };
+  }
+
+  // Validate anon key looks like a JWT
+  if (!supabaseAnonKey.includes(".")) {
+    return {
+      valid: false,
+      error: `Invalid NEXT_PUBLIC_SUPABASE_ANON_KEY format. Expected a JWT token from Supabase API Settings.`,
+      missingVars: [],
+    };
+  }
+
+  return { valid: true };
+}
+
+// ============================================================================
+// Development Logging (stripped in production build)
+// ============================================================================
+
+function logConfigStatus() {
+  if (process.env.NODE_ENV !== "development") return;
+  if (typeof window !== "undefined") return; // Only log on server
+
+  const validation = validateConfig();
+
+  if (validation.valid) {
+    console.log(
+      "[Supabase] Configuration loaded successfully. URL:",
+      supabaseUrl.replace(/https?:\/\//, "").split(".")[0],
+    );
+  } else {
+    console.warn("[Supabase] Configuration error:", validation.error);
   }
 }
 
-export { supabaseConfigError };
+logConfigStatus();
 
-export const supabase = supabaseConfigError
-  ? null
-  : createClient(supabaseUrl, supabaseAnonKey);
+// ============================================================================
+// Client Initialization
+// ============================================================================
+
+const validation = validateConfig();
+
+export const supabaseConfigError: string = validation.valid
+  ? ""
+  : validation.error;
+
+export const supabase = validation.valid
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;

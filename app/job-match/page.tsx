@@ -92,6 +92,48 @@ export default function JobMatchPage() {
 
   const canAnalyze = hasResume && localJobDescription.trim().length > 0;
 
+  async function parseApiErrorMessage(response: Response, fallback: string) {
+    const rawText = await response.text();
+    if (!rawText) {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as { error?: string };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error;
+      }
+    } catch {
+      // Response was not JSON; use fallback.
+    }
+
+    return fallback;
+  }
+
+  async function parseMatchResponse(
+    response: Response,
+  ): Promise<JobMatchResult> {
+    const rawText = await response.text();
+    if (!rawText) {
+      throw new Error("The analysis service returned an empty response.");
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as JobMatchResult;
+      if (
+        typeof parsed.matchScore !== "number" ||
+        !Array.isArray(parsed.matchedSkills) ||
+        !Array.isArray(parsed.missingSkills) ||
+        !Array.isArray(parsed.suggestions)
+      ) {
+        throw new Error("Unexpected response shape.");
+      }
+      return parsed;
+    } catch {
+      throw new Error("Received an unexpected response from the server.");
+    }
+  }
+
   async function handleAnalyzeMatch() {
     if (!canAnalyze) return;
 
@@ -109,19 +151,15 @@ export default function JobMatchPage() {
         }),
       });
 
-      const data = (await response.json()) as
-        | JobMatchResult
-        | { error?: string };
-
       if (!response.ok) {
-        const message =
-          "error" in data && data.error
-            ? data.error
-            : "Unable to analyze. Please try again.";
+        const message = await parseApiErrorMessage(
+          response,
+          "Unable to analyze. Please try again.",
+        );
         throw new Error(message);
       }
 
-      const matchResult = data as JobMatchResult;
+      const matchResult = await parseMatchResponse(response);
       setResult(matchResult);
       setJobDescription(localJobDescription);
       setJobMatchResult(matchResult);
@@ -133,10 +171,25 @@ export default function JobMatchPage() {
           missingSkills: matchResult.missingSkills,
           suggestions: matchResult.suggestions,
         }).then((saved) => {
-          if (saved) setJobMatchHistory((prev) => [saved, ...prev]);
+          if (saved) {
+            setJobMatchHistory((prev) => [saved, ...prev]);
+            return;
+          }
+
+          setHistoryError(
+            "Match generated, but we could not save this result to your history.",
+          );
         });
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message.toLowerCase() : "";
+      if (message.includes("failed to fetch") || message.includes("network")) {
+        setError(
+          "Network issue while analyzing the match. Please check your connection and try again.",
+        );
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message

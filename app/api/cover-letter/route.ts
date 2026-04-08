@@ -93,12 +93,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "role is required." }, { status: 400 });
     }
 
-    const companyName = body.companyName.trim();
-    const role = body.role.trim();
+    const companyName = body.companyName.trim().slice(0, 100);
+    const role = body.role.trim().slice(0, 100);
     const jobDescription =
-      typeof body.jobDescription === "string" ? body.jobDescription.trim() : "";
-    const strengths = toStringArray(body.strengths);
-    const matchedSkills = toStringArray(body.matchedSkills);
+      typeof body.jobDescription === "string"
+        ? body.jobDescription.trim().slice(0, 2000)
+        : "";
+    const strengths = toStringArray(body.strengths).slice(0, 5);
+    const matchedSkills = toStringArray(body.matchedSkills).slice(0, 10);
 
     // Simulate a realistic generation delay.
     await new Promise((resolve) => setTimeout(resolve, 600));
@@ -112,7 +114,13 @@ export async function POST(request: Request) {
     );
 
     return NextResponse.json({ coverLetter });
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        { error: "Invalid request body. Please check your JSON format." },
+        { status: 400 },
+      );
+    }
     return NextResponse.json(
       { error: "Failed to generate cover letter. Please try again." },
       { status: 500 },

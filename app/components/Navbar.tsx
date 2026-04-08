@@ -45,6 +45,11 @@ export default function Navbar() {
     }
 
     async function loadSession() {
+      if (!supabase) {
+        setIsAuthenticated(false);
+        return;
+      }
+
       const { data, error } = await supabase.auth.getSession();
       if (!isMounted) {
         return;

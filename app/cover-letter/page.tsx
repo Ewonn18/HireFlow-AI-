@@ -19,6 +19,11 @@ const primaryButtonClass =
 const secondaryButtonClass =
   "inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-100 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800";
 
+type FormErrors = {
+  companyName?: string;
+  role?: string;
+};
+
 export default function CoverLetterPage() {
   const {
     resumeAnalysisResult,
@@ -35,6 +40,8 @@ export default function CoverLetterPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [coverLetter, setCoverLetter] = useState("");
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const companyInputRef = useRef<HTMLInputElement>(null);
 
   const canGenerate =
@@ -44,11 +51,68 @@ export default function CoverLetterPage() {
     role.trim().length > 0 ||
     localJobDescription.trim().length > 0;
 
+  function validateForm(): FormErrors {
+    const nextErrors: FormErrors = {};
+
+    if (!companyName.trim()) {
+      nextErrors.companyName = "Company name is required.";
+    }
+
+    if (!role.trim()) {
+      nextErrors.role = "Role is required.";
+    }
+
+    return nextErrors;
+  }
+
+  async function parseApiErrorMessage(response: Response, fallback: string) {
+    const rawText = await response.text();
+    if (!rawText) {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as { error?: string };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error;
+      }
+    } catch {
+      // Response was not JSON; use fallback message.
+    }
+
+    return fallback;
+  }
+
+  async function parseCoverLetterResponse(response: Response) {
+    const rawText = await response.text();
+    if (!rawText) {
+      throw new Error("The service returned an empty response.");
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as { coverLetter?: string };
+      if (
+        typeof parsed.coverLetter !== "string" ||
+        !parsed.coverLetter.trim()
+      ) {
+        throw new Error("Generated content was empty. Please try again.");
+      }
+      return parsed.coverLetter;
+    } catch {
+      throw new Error("Received an unexpected response from the server.");
+    }
+  }
+
   async function handleGenerate() {
-    if (!canGenerate) return;
+    const nextErrors = validateForm();
+    setFormErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0 || !canGenerate) {
+      return;
+    }
 
     setIsGenerating(true);
     setError("");
+    setSuccessMessage("");
     setCoverLetter("");
 
     try {
@@ -64,20 +128,26 @@ export default function CoverLetterPage() {
         }),
       });
 
-      const data = (await response.json()) as
-        | { coverLetter: string }
-        | { error?: string };
-
       if (!response.ok) {
-        const message =
-          "error" in data && data.error
-            ? data.error
-            : "Failed to generate cover letter. Please try again.";
+        const message = await parseApiErrorMessage(
+          response,
+          "Failed to generate cover letter. Please try again.",
+        );
         throw new Error(message);
       }
 
-      setCoverLetter((data as { coverLetter: string }).coverLetter);
+      const generatedCoverLetter = await parseCoverLetterResponse(response);
+      setCoverLetter(generatedCoverLetter);
+      setSuccessMessage("Cover letter generated successfully.");
     } catch (err) {
+      const message = err instanceof Error ? err.message.toLowerCase() : "";
+      if (message.includes("failed to fetch") || message.includes("network")) {
+        setError(
+          "Network issue while generating your letter. Please check your connection and try again.",
+        );
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
@@ -185,10 +255,24 @@ export default function CoverLetterPage() {
                       id="company-name"
                       type="text"
                       value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
+                      onChange={(e) => {
+                        setCompanyName(e.target.value);
+                        setFormErrors((prev) => ({
+                          ...prev,
+                          companyName: undefined,
+                        }));
+                        setError("");
+                        setSuccessMessage("");
+                      }}
                       placeholder="e.g. Stripe"
+                      disabled={isGenerating}
                       className={`mt-2 ${inputClass}`}
                     />
+                    {formErrors.companyName ? (
+                      <p className="mt-1.5 text-sm font-medium text-rose-600">
+                        {formErrors.companyName}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <label
@@ -201,10 +285,21 @@ export default function CoverLetterPage() {
                       id="role"
                       type="text"
                       value={role}
-                      onChange={(e) => setRole(e.target.value)}
+                      onChange={(e) => {
+                        setRole(e.target.value);
+                        setFormErrors((prev) => ({ ...prev, role: undefined }));
+                        setError("");
+                        setSuccessMessage("");
+                      }}
                       placeholder="e.g. Frontend Engineer"
+                      disabled={isGenerating}
                       className={`mt-2 ${inputClass}`}
                     />
+                    {formErrors.role ? (
+                      <p className="mt-1.5 text-sm font-medium text-rose-600">
+                        {formErrors.role}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -221,9 +316,14 @@ export default function CoverLetterPage() {
                   <textarea
                     id="cover-jd"
                     value={localJobDescription}
-                    onChange={(e) => setLocalJobDescription(e.target.value)}
+                    onChange={(e) => {
+                      setLocalJobDescription(e.target.value);
+                      setError("");
+                      setSuccessMessage("");
+                    }}
                     placeholder="Paste the job description to make your letter more relevant..."
                     rows={5}
+                    disabled={isGenerating}
                     className={`mt-2 ${textareaClass}`}
                   />
                 </div>
@@ -252,6 +352,12 @@ export default function CoverLetterPage() {
                   </p>
                 ) : null}
 
+                {successMessage ? (
+                  <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                    {successMessage}
+                  </p>
+                ) : null}
+
                 {coverLetter ? (
                   <article className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/80 p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/70 dark:shadow-[0_14px_26px_rgba(2,6,23,0.35)]">
                     <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
@@ -264,9 +370,19 @@ export default function CoverLetterPage() {
                     </div>
                     <button
                       type="button"
-                      onClick={() =>
-                        void navigator.clipboard.writeText(coverLetter)
-                      }
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(coverLetter);
+                          setSuccessMessage(
+                            "Cover letter copied to clipboard.",
+                          );
+                          setError("");
+                        } catch {
+                          setError(
+                            "Unable to copy automatically. Please copy the text manually.",
+                          );
+                        }
+                      }}
                       className={`mt-4 ${secondaryButtonClass}`}
                     >
                       Copy to Clipboard

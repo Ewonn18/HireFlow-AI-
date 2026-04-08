@@ -182,6 +182,49 @@ export default function ResumeUploadPage() {
     fileInputRef.current?.click();
   }
 
+  async function parseApiErrorMessage(response: Response, fallback: string) {
+    const rawText = await response.text();
+    if (!rawText) {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as { error?: string };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error;
+      }
+    } catch {
+      // Response was not JSON; use fallback.
+    }
+
+    return fallback;
+  }
+
+  async function parseAnalysisResponse(
+    response: Response,
+  ): Promise<AnalysisResult> {
+    const rawText = await response.text();
+    if (!rawText) {
+      throw new Error("The analysis service returned an empty response.");
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as AnalysisResult;
+      if (
+        typeof parsed.matchScore !== "number" ||
+        !Array.isArray(parsed.strengths) ||
+        !Array.isArray(parsed.missingSkills) ||
+        !Array.isArray(parsed.suggestions) ||
+        typeof parsed.extractedText !== "string"
+      ) {
+        throw new Error("Unexpected response shape.");
+      }
+      return parsed;
+    } catch {
+      throw new Error("Received an unexpected response from the server.");
+    }
+  }
+
   async function handleAnalyzeResume() {
     if (!uploadState.file) {
       return;
@@ -200,19 +243,15 @@ export default function ResumeUploadPage() {
         body: formData,
       });
 
-      const data = (await response.json()) as
-        | AnalysisResult
-        | { error?: string };
-
       if (!response.ok) {
-        const message =
-          "error" in data && data.error
-            ? data.error
-            : "Unable to analyze resume right now. Please try again.";
+        const message = await parseApiErrorMessage(
+          response,
+          "Unable to analyze resume right now. Please try again.",
+        );
         throw new Error(message);
       }
 
-      const result = data as AnalysisResult;
+      const result = await parseAnalysisResponse(response);
       setAnalysisResult(result);
       // Persist to shared context so other pages can consume this data.
       setResumeAnalysisResult(result);
@@ -232,11 +271,26 @@ export default function ResumeUploadPage() {
             missingSkills: result.missingSkills,
             suggestions: result.suggestions,
           }).then((saved) => {
-            if (saved) setResumeHistory((prev) => [saved, ...prev]);
+            if (saved) {
+              setResumeHistory((prev) => [saved, ...prev]);
+              return;
+            }
+
+            setHistoryError(
+              "Analysis completed, but we could not save it to your history.",
+            );
           });
         }
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("failed to fetch") || message.includes("network")) {
+        setAnalyzeError(
+          "Network issue while analyzing your resume. Please check your connection and try again.",
+        );
+        return;
+      }
+
       setAnalyzeError(
         error instanceof Error
           ? error.message

@@ -221,6 +221,10 @@ export default function TrackerPage() {
     const {
       data: { subscription },
     } = client.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) {
+        return;
+      }
+
       if (!session) {
         setUserId("");
         setEntries([]);

@@ -77,6 +77,14 @@ export default function ForgotPasswordPage() {
     }
 
     try {
+      if (typeof window === "undefined") {
+        setSubmitError(
+          "Unable to determine reset redirect URL. Please reload and try again.",
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const redirectTo = `${window.location.origin}/update-password`;
       const { error } = await supabase.auth.resetPasswordForEmail(
         values.email.trim(),

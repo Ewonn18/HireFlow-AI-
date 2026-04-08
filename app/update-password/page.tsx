@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "../components/Navbar";
@@ -61,6 +61,7 @@ export default function UpdatePasswordPage() {
   const [hasRecoverySession, setHasRecoverySession] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -92,6 +93,9 @@ export default function UpdatePasswordPage() {
 
     return () => {
       isMounted = false;
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
       subscription.unsubscribe();
     };
   }, []);
@@ -150,7 +154,7 @@ export default function UpdatePasswordPage() {
       }
 
       setSuccessMessage("Password updated. Redirecting you to login...");
-      setTimeout(() => {
+      redirectTimeoutRef.current = setTimeout(() => {
         router.push("/login?passwordUpdated=1");
         router.refresh();
       }, 1200);

@@ -204,9 +204,17 @@ export async function POST(request: Request) {
       suggestions,
       extractedText,
     });
-  } catch {
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("Resume analysis error:", error);
+    }
+
+    // Return generic message to user to prevent information leakage
     return NextResponse.json(
-      { error: "Failed to analyze resume. Please try again." },
+      {
+        error:
+          "Failed to analyze resume. Please ensure the file is valid and try again.",
+      },
       { status: 500 },
     );
   }
